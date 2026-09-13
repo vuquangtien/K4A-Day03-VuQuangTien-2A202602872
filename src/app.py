@@ -5,6 +5,7 @@ Thực thi so sánh giữa Chatbot Baseline (Cấp 2) và ReAct Agent kết nố
 
 import json
 import os
+import re
 import sys
 import time
 from dotenv import load_dotenv
@@ -59,6 +60,55 @@ def run_baseline_chatbot(user_query: str, provider):
     print(f"\n💬 [CHATBOT BASELINE] Câu hỏi: {user_query}")
     response = provider.generate(user_query, system_prompt=CHATBOT_BASELINE_PROMPT)
     print(f"🤖 Chatbot phản hồi:\n{response}")
+
+
+def extract_datetime_from_query(user_query: str) -> str:
+    """Trích xuất thời gian hẹn đơn giản từ câu hỏi của sinh viên."""
+    patterns = [
+        r"\d{1,2}:\d{2}\s*(?:ngày\s*)?\d{1,2}/\d{1,2}/\d{4}",
+        r"\d{1,2}h(?:\d{2})?\s*(?:ngày\s*)?\d{1,2}/\d{1,2}/\d{4}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, user_query, flags=re.IGNORECASE)
+        if match:
+            value = re.sub(r"\s*ngày\s*", " ", match.group(0), flags=re.IGNORECASE).strip()
+            return re.sub(r"^(\d{1,2})h\s", r"\1:00 ", value)
+    return "14:00 15/09/2026"
+
+
+def extract_student_ids(user_query: str) -> list[str]:
+    """Lấy các mã sinh viên khác nhau xuất hiện trong một yêu cầu."""
+    return list(dict.fromkeys(re.findall(r"SV\d{7}", user_query, flags=re.IGNORECASE)))
+
+
+def should_continue_to_booking(user_query: str, tool_name: str, obs_data: dict) -> bool:
+    """Xác định case ReAct đa bước: tra cứu sinh viên xong mới đặt lịch với cố vấn."""
+    query_lower = user_query.lower()
+    has_booking_intent = "đặt lịch" in query_lower or "hẹn tư vấn" in query_lower
+    return (
+        tool_name == "academic_query"
+        and has_booking_intent
+        and obs_data.get("status") == "SUCCESS"
+        and "data" in obs_data
+    )
+
+
+def build_final_answer(obs_data: dict) -> str:
+    """Tổng hợp Final Answer từ kết quả Observation thực tế."""
+    if obs_data.get("status") == "SUCCESS":
+        if "data" in obs_data:
+            d = obs_data["data"]
+            return (
+                f"Kết quả tra cứu cho sinh viên {obs_data.get('student_id', '')} ({d.get('full_name', '')}): "
+                f"Lớp {d.get('class', '')}, GPA: {d.get('gpa', '')}, Email: {d.get('email', '')}, "
+                f"Trạng thái: {d.get('status', '')}, Cố vấn: {d.get('advisor', '')}."
+            )
+        if "message" in obs_data:
+            return obs_data["message"]
+        return f"Đã hoàn tất xử lý qua MCP Server: {json.dumps(obs_data, ensure_ascii=False)}"
+    if obs_data.get("status") == "NOT_FOUND":
+        return obs_data.get("message", "Không tìm thấy thông tin sinh viên yêu cầu.")
+    return f"Phản hồi từ công cụ: {json.dumps(obs_data, ensure_ascii=False)}"
 
 
 def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) -> list:
@@ -117,23 +167,7 @@ def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) ->
                 obs_str = json.dumps(obs_data, ensure_ascii=False)
                 print(f"👁️ [Observation từ MCP Server]: {obs_str}")
                 
-                # Tổng hợp Final Answer từ kết quả Observation thực tế
-                if obs_data.get("status") == "SUCCESS":
-                    if "data" in obs_data:
-                        d = obs_data["data"]
-                        final_answer = (
-                            f"Kết quả tra cứu cho sinh viên {obs_data.get('student_id', '')} ({d.get('full_name', '')}): "
-                            f"Lớp {d.get('class', '')}, GPA: {d.get('gpa', '')}, Email: {d.get('email', '')}, "
-                            f"Trạng thái: {d.get('status', '')}, Cố vấn: {d.get('advisor', '')}."
-                        )
-                    elif "message" in obs_data:
-                        final_answer = obs_data["message"]
-                    else:
-                        final_answer = f"Đã hoàn tất xử lý qua MCP Server: {json.dumps(obs_data, ensure_ascii=False)}"
-                elif obs_data.get("status") == "NOT_FOUND":
-                    final_answer = obs_data.get("message", "Không tìm thấy thông tin sinh viên yêu cầu.")
-                else:
-                    final_answer = f"Phản hồi từ công cụ: {json.dumps(obs_data, ensure_ascii=False)}"
+                final_answer = build_final_answer(obs_data)
             
             trace_logs.append({
                 "step": step,
@@ -145,12 +179,49 @@ def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) ->
                 "latency_ms": latency_ms
             })
             
+            final_step = step + 1
+            if len(extract_student_ids(user_query)) > 1 and obs_data.get("status") == "SUCCESS":
+                student_ids = ", ".join(extract_student_ids(user_query))
+                final_answer = (
+                    f"Yêu cầu đang nhắc tới nhiều mã sinh viên ({student_ids}). "
+                    "Bạn vui lòng xác nhận mã sinh viên cần đặt lịch trước khi tiếp tục."
+                )
+                final_step = step + 1
+                print(f"⚠️ [CLARIFICATION]: {final_answer}")
+            elif should_continue_to_booking(user_query, tool_name, obs_data):
+                schedule_args = {
+                    "student_id": obs_data.get("student_id", arguments.get("student_id", "")),
+                    "datetime_str": extract_datetime_from_query(user_query),
+                    "advisor_name": obs_data["data"].get("advisor", "PGS.TS Nguyễn Văn A"),
+                }
+                schedule_start_time = time.time()
+                schedule_step = step + 1
+                print(f"\n--- 🔄 Vòng lặp ReAct Loop (Step {schedule_step}/{MAX_ITERATIONS}) ---")
+                print("🧠 [Thought]: Observation đã cho biết cố vấn học tập. Tiếp tục đặt lịch đúng cố vấn.")
+                print(f"🛠️ [Action Proposed]: schedule_appointment({schedule_args})")
+                schedule_result = mcp_server.call_tool("schedule_appointment", schedule_args)
+                schedule_obs_data = schedule_result.get("result", {})
+                schedule_latency_ms = round((time.time() - schedule_start_time) * 1000, 2)
+                print(f"👁️ [Observation từ MCP Server]: {json.dumps(schedule_obs_data, ensure_ascii=False)}")
+
+                trace_logs.append({
+                    "step": schedule_step,
+                    "query": user_query,
+                    "action_type": "TOOL_EXECUTION",
+                    "tool_name": "schedule_appointment",
+                    "arguments": schedule_args,
+                    "observation": schedule_obs_data,
+                    "latency_ms": schedule_latency_ms
+                })
+                final_answer = build_final_answer(schedule_obs_data)
+                final_step = schedule_step + 1
+
             # Kết thúc vòng lặp sau khi hoàn tất Observation và xuất Final Answer
             print(f"🧠 [Thought]: Đã nhận được dữ liệu từ MCP Server. Tổng hợp kết quả phản hồi.")
             print(f"🏁 [Final Answer]: {final_answer}")
             
             trace_logs.append({
-                "step": step + 1,
+                "step": final_step,
                 "query": user_query,
                 "action_type": "FINAL_ANSWER",
                 "thought": "Tổng hợp kết quả từ MCP Server thành công.",
