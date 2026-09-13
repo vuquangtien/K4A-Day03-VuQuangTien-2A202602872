@@ -1,17 +1,9 @@
-"""
-🛠️ TOOL DEFINITIONS & EXECUTION BACKEND
-Mã nguồn chứa danh sách Tool Schemas (JSON Schema) và Execution Layer phục vụ cho MCP Server.
-"""
+"""Tool schemas and execution backend for the academic MCP server."""
 
 import json
 from typing import Dict, Any
 
-# ==============================================================================
-# 1. KHAI BÁO TOOL SCHEMAS CHUẨN NATIVE JSON SCHEMA (TASK 1.2)
-# ==============================================================================
-
 TOOLS_SCHEMA = [
-    # Tool 1: Đã được định nghĩa mẫu sẵn cho Học viên tham khảo
     {
         "name": "academic_query",
         "description": "Tra cứu hồ sơ và thông tin học vụ của sinh viên VinUni bằng mã sinh viên.",
@@ -26,17 +18,6 @@ TOOLS_SCHEMA = [
             "required": ["student_id"]
         }
     },
-    
-    # --------------------------------------------------------------------------
-    # TODO 1.2: HỌC VIÊN HOÀN THIỆN TOOL SCHEMA CHO 'schedule_appointment'
-    # 🎯 YÊU CẦU THIẾT KẾ SCHEMA (JSON SCHEMA STANDARD):
-    # 1. Tool dùng để đặt lịch hẹn tư vấn học vụ với Cố vấn học tập VinUni.
-    # 2. Thiết kế các tham số (properties) để LLM trích xuất:
-    #    - student_id (string): Mã sinh viên cần đặt lịch (ví dụ: 'SV2026001')
-    #    - datetime_str (string): Thời gian hẹn (ví dụ: '14:00 15/09/2026')
-    #    - advisor_name (string): Tên cố vấn học tập
-    # 3. Khai báo danh sách các trường bắt buộc (required).
-    # --------------------------------------------------------------------------
     {
         "name": "schedule_appointment",
         "description": "Đặt lịch hẹn tư vấn học vụ với Cố vấn học tập VinUni.",
@@ -61,10 +42,6 @@ TOOLS_SCHEMA = [
     }
 ]
 
-# ==============================================================================
-# 2. MÔ PHỎNG DỮ LIỆU & HÀM THỰC THI TOOL (EXECUTION LAYER)
-# ==============================================================================
-
 MOCK_DATABASE = {
     "SV2026001": {
         "full_name": "Nguyễn Văn An",
@@ -86,44 +63,87 @@ MOCK_DATABASE = {
 
 
 def execute_academic_query(student_id: str) -> str:
-    """Thực thi tra cứu học vụ theo mã sinh viên"""
-    student = MOCK_DATABASE.get(student_id.strip().upper())
+    """Look up one student by ID."""
+    normalized_id = student_id.strip().upper()
+    student = MOCK_DATABASE.get(normalized_id)
     if student:
         return json.dumps({
             "status": "SUCCESS",
-            "student_id": student_id,
+            "student_id": normalized_id,
             "data": student
         }, ensure_ascii=False)
     else:
         return json.dumps({
             "status": "NOT_FOUND",
-            "message": f"Không tìm thấy dữ liệu sinh viên có mã '{student_id}'"
+            "student_id": normalized_id,
+            "message": f"Không tìm thấy dữ liệu sinh viên có mã '{normalized_id}'"
         }, ensure_ascii=False)
 
 
-def execute_schedule_appointment(student_id: str, datetime_str: str, advisor_name: str = "PGS.TS Nguyễn Văn A") -> str:
-    """Thực thi đặt lịch hẹn tư vấn học vụ"""
+def execute_schedule_appointment(student_id: str, datetime_str: str, advisor_name: str) -> str:
+    """Schedule an advising appointment when all required data is valid."""
+    normalized_id = student_id.strip().upper()
+    advisor = advisor_name.strip()
+    appointment_time = datetime_str.strip()
+    student = MOCK_DATABASE.get(normalized_id)
+    if not student:
+        return json.dumps({
+            "status": "NOT_FOUND",
+            "student_id": normalized_id,
+            "message": f"Không thể đặt lịch vì không tìm thấy sinh viên có mã '{normalized_id}'."
+        }, ensure_ascii=False)
+    if not appointment_time or not advisor:
+        return json.dumps({
+            "status": "INVALID_ARGUMENT",
+            "message": "Thiếu thời gian hẹn hoặc tên cố vấn học tập."
+        }, ensure_ascii=False)
+    if advisor != student.get("advisor"):
+        return json.dumps({
+            "status": "ADVISOR_MISMATCH",
+            "student_id": normalized_id,
+            "expected_advisor": student.get("advisor"),
+            "provided_advisor": advisor,
+            "message": "Tên cố vấn không khớp với hồ sơ sinh viên."
+        }, ensure_ascii=False)
     return json.dumps({
         "status": "SUCCESS",
-        "booking_id": f"BK-{student_id}-99",
-        "student_id": student_id,
-        "datetime": datetime_str,
-        "advisor": advisor_name,
-        "message": f"Đặt lịch thành công cho sinh viên {student_id} với {advisor_name} vào lúc {datetime_str}."
+        "booking_id": f"BK-{normalized_id}-99",
+        "student_id": normalized_id,
+        "datetime": appointment_time,
+        "advisor": advisor,
+        "message": f"Đặt lịch thành công cho sinh viên {normalized_id} với {advisor} vào lúc {appointment_time}."
     }, ensure_ascii=False)
 
 
-# Router gọi tool thực tế
 TOOL_ROUTER = {
     "academic_query": execute_academic_query,
     "schedule_appointment": execute_schedule_appointment
 }
 
+
+def _tool_schema(tool_name: str) -> Dict[str, Any] | None:
+    return next((tool for tool in TOOLS_SCHEMA if tool.get("name") == tool_name), None)
+
+
 def dispatch_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:
-    """Hàm trung chuyển thực thi tool"""
-    if tool_name in TOOL_ROUTER:
-        try:
-            return TOOL_ROUTER[tool_name](**arguments)
-        except Exception as e:
-            return json.dumps({"status": "EXECUTION_ERROR", "error": str(e)}, ensure_ascii=False)
-    return json.dumps({"status": "UNKNOWN_TOOL", "error": f"Tool '{tool_name}' không tồn tại!"}, ensure_ascii=False)
+    """Validate arguments and execute a registered tool."""
+    if tool_name not in TOOL_ROUTER:
+        return json.dumps({"status": "UNKNOWN_TOOL", "error": f"Tool '{tool_name}' không tồn tại."}, ensure_ascii=False)
+
+    schema = _tool_schema(tool_name) or {}
+    required_fields = schema.get("parameters", {}).get("required", [])
+    missing = [field for field in required_fields if not arguments.get(field)]
+    if missing:
+        return json.dumps({
+            "status": "INVALID_ARGUMENT",
+            "tool_name": tool_name,
+            "missing": missing,
+            "message": f"Thiếu tham số bắt buộc: {', '.join(missing)}."
+        }, ensure_ascii=False)
+
+    try:
+        return TOOL_ROUTER[tool_name](**arguments)
+    except TypeError as e:
+        return json.dumps({"status": "INVALID_ARGUMENT", "tool_name": tool_name, "error": str(e)}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "EXECUTION_ERROR", "tool_name": tool_name, "error": str(e)}, ensure_ascii=False)

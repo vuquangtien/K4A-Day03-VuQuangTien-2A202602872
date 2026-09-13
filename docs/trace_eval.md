@@ -1,28 +1,33 @@
-# 📊 BÁO CÁO THU HOẠCH NGHIỆM THU BÀI LAB 3 (BƯỚC 3 — SUBMISSION ARTIFACT)
+# Báo cáo nghiệm thu Lab 03
 
-> **Họ và Tên Học viên:** Vu Quang Tien  
-> **Mã Sinh Viên / Mã Học viên:** 2A202602872  
-> **Chủ đề Lựa chọn:** Trợ lý Học vụ VinUni
+**Họ và tên:** Vu Quang Tien
+**MSSV:** 2A202602872
+**Chủ đề:** Trợ lý Học vụ VinUni
 
----
+## 1. Agentic Fit Scoring Matrix
 
-## 1. BẢNG CHẤM ĐIỂM AGENTIC FIT SCORING MATRIX (ĐÁNH GIÁ CHỦ ĐỀ)
-
-| Tiêu chí Đánh giá | Mức độ (1 - 5) | Giải trình chi tiết lý do chọn điểm |
+| Tiêu chí | Điểm | Giải thích |
 | :--- | :---: | :--- |
-| **1. Multi-step Reasoning** | 4 / 5 | Một số yêu cầu cần tách thành nhiều bước như tra cứu hồ sơ sinh viên, xác định cố vấn học tập rồi mới đặt lịch tư vấn. |
-| **2. Tool Interaction** | 5 / 5 | Hệ thống bắt buộc gọi MCP Server để tra cứu dữ liệu học vụ và thực hiện hành động đặt lịch, không thể chỉ trả lời bằng văn bản. |
-| **3. Dynamic Decision** | 4 / 5 | Agent phải quyết định trả lời trực tiếp, gọi `academic_query`, gọi `schedule_appointment`, hoặc xử lý trường hợp không tìm thấy sinh viên tùy theo Observation. |
-| **4. Long Horizon Goal** | 3 / 5 | Mục tiêu của phiên tư vấn có thể kéo dài qua vài bước trong cùng một yêu cầu, dù chưa cần memory dài hạn như autonomous agent. |
-| **TỔNG ĐIỂM AGENTIC FIT** | **16 / 20** | Bài toán phù hợp triển khai Agentic System vì tổng điểm lớn hơn 12/20 và có nhu cầu tool use rõ ràng. |
+| Multi-step Reasoning | 4 / 5 | Một số yêu cầu cần tra cứu hồ sơ sinh viên, lấy cố vấn học tập rồi mới đặt lịch. |
+| Tool Interaction | 5 / 5 | Agent phải dùng tool để lấy dữ liệu học vụ và thực hiện hành động đặt lịch. |
+| Dynamic Decision | 4 / 5 | Agent cần quyết định trả lời trực tiếp, tra cứu, đặt lịch, hoặc xử lý NOT_FOUND tùy query và Observation. |
+| Long Horizon Goal | 3 / 5 | Phiên xử lý có thể gồm vài bước liên tiếp, nhưng chưa cần memory dài hạn. |
+| **Tổng điểm** | **16 / 20** | Bài toán phù hợp ReAct Agent vì có multi-step flow và tool use rõ ràng. |
 
----
+## 2. Waterfall Trace Log
 
-## 2. TRÍCH XUẤT KẾT QUẢ WATERFALL TRACE LOG (SAU KHI CHẠY TEST SUITE TRÊN API THẬT)
+Lần nghiệm thu cuối chạy bằng OpenAI live provider:
 
-> ⚠️ **YÊU CẦU NGHIỆM THU:** Mở tệp `.env` điền `GEMINI_API_KEY` (hoặc `OPENAI_API_KEY`) để kết nối LLM thật trước khi thực thi `python src/app.py --all`. Bài nộp chỉ dùng Mock Offline Provider sẽ không đạt điểm nghiệm thực tế.
+```json
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "mode": "live",
+  "generated_at": "2026-09-13T16:21:53.054629+00:00"
+}
+```
 
-Dán 1 đoạn trích xuất log tiêu biểu từ file `docs/trace_waterfall.json` sinh ra từ phản hồi LLM API thật:
+Đoạn trace tiêu biểu cho TC04:
 
 ```json
 [
@@ -30,6 +35,7 @@ Dán 1 đoạn trích xuất log tiêu biểu từ file `docs/trace_waterfall.js
     "step": 1,
     "query": "Trước tiên hãy tra cứu thông tin học vụ của sinh viên SV2026002, sau đó đặt lịch hẹn tư vấn với đúng cố vấn học tập của sinh viên này vào 09:30 ngày 16/09/2026.",
     "action_type": "TOOL_EXECUTION",
+    "decision_summary": "OpenAI selected tool academic_query for the next action.",
     "tool_name": "academic_query",
     "arguments": {
       "student_id": "SV2026002"
@@ -46,12 +52,15 @@ Dán 1 đoạn trích xuất log tiêu biểu từ file `docs/trace_waterfall.js
         "advisor": "TS. Lê Thị B"
       }
     },
-    "latency_ms": 2091.98
+    "latency_ms": 1847.93,
+    "llm_latency_ms": 1847.83,
+    "tool_latency_ms": 0.1
   },
   {
     "step": 2,
     "query": "Trước tiên hãy tra cứu thông tin học vụ của sinh viên SV2026002, sau đó đặt lịch hẹn tư vấn với đúng cố vấn học tập của sinh viên này vào 09:30 ngày 16/09/2026.",
     "action_type": "TOOL_EXECUTION",
+    "decision_summary": "OpenAI selected tool schedule_appointment for the next action.",
     "tool_name": "schedule_appointment",
     "arguments": {
       "student_id": "SV2026002",
@@ -66,20 +75,27 @@ Dán 1 đoạn trích xuất log tiêu biểu từ file `docs/trace_waterfall.js
       "advisor": "TS. Lê Thị B",
       "message": "Đặt lịch thành công cho sinh viên SV2026002 với TS. Lê Thị B vào lúc 09:30 16/09/2026."
     },
-    "latency_ms": 0.07
+    "latency_ms": 1310.7,
+    "llm_latency_ms": 1310.63,
+    "tool_latency_ms": 0.07
+  },
+  {
+    "step": 3,
+    "query": "Trước tiên hãy tra cứu thông tin học vụ của sinh viên SV2026002, sau đó đặt lịch hẹn tư vấn với đúng cố vấn học tập của sinh viên này vào 09:30 ngày 16/09/2026.",
+    "action_type": "FINAL_ANSWER",
+    "decision_summary": "OpenAI returned a direct final answer.",
+    "answer": "Đã đặt lịch hẹn tư vấn thành công cho sinh viên Trần Thị Bình (SV2026002) với TS. Lê Thị B vào lúc 09:30 ngày 16/09/2026.",
+    "latency_ms": 1284.25
   }
 ]
 ```
 
----
+## 3. Kết quả nghiệm thu
 
-## 3. TỔNG KẾT KẾT QUẢ NGHIỆM THU & NỘP BÀI
+- [x] Đã chạy nghiệm thu bằng LLM API thật: OpenAI.
+- [x] 5 / 5 testcase đã chạy thành công.
+- [x] TC04 thể hiện ReAct multi-step thật: `academic_query` -> Observation -> `schedule_appointment` -> Final Answer.
+- [x] Trace log cuối nằm tại `docs/trace_waterfall.json`.
+- [ ] Đã Commit và Push mã nguồn thành công lên GitHub cá nhân.
 
-- [x] Đã điền API Key thật trong `.env` và xác nhận Agent chạy mượt mà trên LLM API thật (OpenAI).
-- **Tổng số Test Cases đã chạy thành công:** 5 / 5 test cases.
-- **Số lượt gọi Tool qua MCP Server chính xác:** 5 lượt.
-- **Kết quả đẩy Repo nộp bài:** [ ] Đã Commit và Push mã nguồn thành công lên GitHub cá nhân.
-
----
-
-> ✅ **HOÀN TẤT NỘP BÀI:** Sao chép đường link GitHub Repository cá nhân của bạn và dán vào ô nộp bài trên hệ thống LMS VLearn để hoàn tất Bài Lab 3!
+Không có API key hoặc secret trong artifact nộp bài.
