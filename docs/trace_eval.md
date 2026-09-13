@@ -2,7 +2,7 @@
 
 > **Họ và Tên Học viên:** Vu Quang Tien  
 > **Mã Sinh Viên / Mã Học viên:** 2A202602872  
-> **Chủ đề Lựa chọn:** Trợ lý Học vụ & Tra cứu Lịch thi VinUni  
+> **Chủ đề Lựa chọn:** Trợ lý Học vụ VinUni
 
 ---
 
